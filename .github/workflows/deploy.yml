@@ -16,7 +16,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '14'  # You can specify the version of Node.js you need
+        node-version: '14'
 
     - name: Install dependencies
       run: npm install -g pm2
@@ -24,9 +24,9 @@ jobs:
     - name: Run build script
       run: |
         #!/bin/bash
-        
-        # Github token
-        TOKEN="${{ secrets.GITHUB_TOKEN }}"
+
+        # Github token from GitHub Secrets
+        TOKEN="${{ secrets.MY_GITHUB_TOKEN }}"
         
         # Github repo details
         REPO_OWNER="juancarlosv2711"
