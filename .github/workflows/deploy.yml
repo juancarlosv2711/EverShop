@@ -1,4 +1,4 @@
-name: Deploy Application
+name: Build and Deploy
 
 on:
   push:
@@ -11,46 +11,82 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Set up Node.js
-      uses: actions/setup-node@v2
+      uses: actions/setup-node@v3
       with:
-        node-version: '14' # Specify your Node.js version here
+        node-version: '14'  # You can specify the version of Node.js you need
 
     - name: Install dependencies
-      run: npm install --unsafe-perm
+      run: npm install -g pm2
 
-    - name: Build the app
-      run: npm run build
-
-    - name: Archive production artifacts
+    - name: Run build script
       run: |
-        mkdir -p artifacts
-        mv build/* artifacts/
-      if: success()
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v2
-      with:
-        name: build-artifacts
-        path: artifacts/
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Download artifacts
-      uses: actions/download-artifact@v2
-      with:
-        name: build-artifacts
-
-    - name: Deploy to EC2
-      env:
-        EC2_USER: ${{ secrets.EC2_USER }}
-        EC2_HOST: ${{ secrets.EC2_HOST }}
-        EC2_KEY: ${{ secrets.EC2_KEY }}
-      run: |
-        scp -i $EC2_KEY -r artifacts/* $EC2_USER@$EC2_HOST:/var/www/html/current
-        ssh -i $EC2_KEY $EC2_USER@$EC2_HOST 'cd /var/www/html/current && pm2 restart all'
+        #!/bin/bash
+        
+        # Github token
+        TOKEN="${{ secrets.GITHUB_TOKEN }}"
+        
+        # Github repo details
+        REPO_OWNER="juancarlosv2711"
+        REPO_NAME="evershop-2"
+        BRANCH="main"
+        
+        # Check if tar is installed
+        echo "Checking if tar is installed..."
+        if ! command -v tar &> /dev/null
+        then
+           echo "tar is not installed, installing now..."
+           sudo apt-get install tar -y
+        fi
+        
+        # Set variables
+        CURRENT_BUILD="current"
+        TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+        NEW_BUILD="build_$TIMESTAMP"
+        
+        # Download source from GitHub archive
+        echo "Downloading source from GitHub..."
+        wget --header="Authorization: token $TOKEN" -O $NEW_BUILD.tar.gz https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/tarball
+        
+        # Unzip source to new build directory
+        echo "Extracting source to $NEW_BUILD..."
+        mkdir $NEW_BUILD
+        tar -xf $NEW_BUILD.tar.gz -C $NEW_BUILD --strip-components 1
+        
+        # Install npm dependencies
+        echo "Installing npm dependencies..."
+        cd $NEW_BUILD && npm install --unsafe-perm
+        
+        # Build the app
+        echo "Building the app..."
+        npm run build
+        
+        cd ..
+        
+        # Rename current build folder to previous build folder
+        if [ -d "previous-build" ]; then
+         rm -rf previous-build
+        fi
+        
+        echo "Rename the current build to previous-build"
+        mv $CURRENT_BUILD previous-build
+        
+        # Rename new build folder to current build folder
+        mv $NEW_BUILD $CURRENT_BUILD
+        
+        # Copy media and config folder from previous build to current build
+        if [ -d "previous-build" ]; then
+         cp -R previous-build/media $CURRENT_BUILD/media
+         cp -R previous-build/config $CURRENT_BUILD/config
+        fi
+        
+        # Set permissions for media folder
+        chmod 777 $CURRENT_BUILD/media
+        
+        cd $CURRENT_BUILD
+        
+        # Start app with pm2
+        pm2 stop all
+        pm2 start npm -- start
